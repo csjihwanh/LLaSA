@@ -1,0 +1,26 @@
+Evaluation Toolkit for A2D Dataset
+Authors: Chenliang Xu and Jason J. Corso
+Email: {cliangxu,jjcorso}@umich.edu
+Date: 06/01/2015
+Version: 1.0
+
+We provide evaluation code for pixel-level actor-action semantic segmentation and ground truth labels for video-level actor-action single- and multiple-label recognition.
+
+----------------------------------------
+Pixel-level Actor-Action Semantic Segmentation
+
+See evalSegmentation.m for detail.
+
+----------------------------------------
+Video-level Actor-Action Single- and Multiple-Label Recognition
+
+AR.mat
+    vid - 11 digit vid ID
+    test - a flag to denote test (1) or train (0)
+    single - ground truth single label for videos
+    multiple - ground truth multiple labels for videos
+
+We follow THUMOS Challenge 2014 to compute mAP for multiple label evaluation.
+See http://crcv.ucf.edu/THUMOS14/home.html
+
+
