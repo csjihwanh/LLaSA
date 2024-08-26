@@ -1,0 +1,6 @@
+
+checkpoint: "../../checkpoints/sam2_hiera_large.pt"
+
+# Path to the model configuration file
+model_cfg: "/workspace/LLaSA/model/segmentation/sam2_configs/sam2_hiera_l.yaml"
+cfg_dir: "model/segmentation/sam2_configs"

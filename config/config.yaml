@@ -1,0 +1,3 @@
+device: 'cuda'
+
+debug_dir: '/workspace/LLaSA/debug'
