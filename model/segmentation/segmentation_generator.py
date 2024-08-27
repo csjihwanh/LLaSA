@@ -5,14 +5,12 @@ import matplotlib.pyplot as plt
 import os
 from PIL import Image
 
-from .sam2.build_sam import build_sam2_video_predictor
-
-from config.config import load_configs
+from sam2.build_sam import build_sam2_video_predictor
 
 class SegmentationGenerator(nn.Module):
-    def __init__(self):
-        
-        config = load_configs()
+    def __init__(self,config):
+
+        super().__init__()
 
         sam2_checkpoint = config.segmentation.checkpoint
         model_cfg = config.segmentation.model_cfg
@@ -21,7 +19,11 @@ class SegmentationGenerator(nn.Module):
 
         self.predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=self.device)
 
+        self.outputs = {}
         self.debug_dir = config.debug_dir
+
+    def forward(self, video_path, interact_frame, bbox, debug=False, intermediate_result=True):
+        return self.inference_video(video_path, interact_frame, bbox, debug, intermediate_result)
 
     def show_mask(mask, ax, obj_id=None, random_color=False):
         if random_color:
@@ -80,9 +82,9 @@ class SegmentationGenerator(nn.Module):
         if hasattr(self, 'hook_handle'):
             self.hook_handle.remove()
 
-    def inference_video(self, video_path, interact_frame, bbox, debug=True, intermediate_result=False):
+    def inference_video(self, video_path, interact_frame, bbox, debug, intermediate_result):
         # video path must be a directory that contains all jpeg files of the video 
-        # mask format: np.float32((x_min, y_min, x_max, y_max))
+        # bbox format: np.float32((x_min, y_min, x_max, y_max))
         
         if intermediate_result:
             self.register_hook()
@@ -109,11 +111,14 @@ class SegmentationGenerator(nn.Module):
             }
 
 
+        if debug:
+            return video_segments, self.outputs['sam_mask_decoder_transformer'][1], out_frame_idx, out_obj_ids, out_mask_logits
+
         if intermediate_result:
             # Remove the hook if it's no longer needed
             self.remove_hook()
             # Return the captured intermediate activation
-            return video_segments, self.outputs['sam_mask_decoder_transformer']
+            return video_segments, self.outputs['sam_mask_decoder_transformer'][1]
+
         
         return video_segments
-
