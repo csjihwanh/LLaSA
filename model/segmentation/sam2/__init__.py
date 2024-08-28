@@ -8,10 +8,8 @@ import hydra
 from hydra import initialize_config_module
 from config.config import load_configs
 
-hydra.core.global_hydra.GlobalHydra.instance().clear()
-
 cfg = load_configs()
 sam2_cfg = cfg.segmentation.cfg_dir
-print(sam2_cfg)
+print('sam2_cfg path: ',sam2_cfg)
 
 initialize_config_module(sam2_cfg, version_base="1.2")

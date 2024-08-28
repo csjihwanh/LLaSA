@@ -72,6 +72,7 @@ class LlavaNextVideoProcessor(ProcessorMixin):
         padding: Union[bool, str, PaddingStrategy] = False,
         truncation: Union[bool, str, TruncationStrategy] = None,
         max_length: int = None,
+        labels = None,
         return_tensors: Optional[Union[str, TensorType]] = TensorType.PYTORCH,
     ) -> BatchFeature:
         """
@@ -144,7 +145,15 @@ class LlavaNextVideoProcessor(ProcessorMixin):
             text, return_tensors=return_tensors, padding=padding, truncation=truncation, max_length=max_length
         )
 
-        return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs, **seg_inputs})
+        labels_inputs = {}
+        if labels is not None:
+            labels_inputs['labels'] = self.tokenizer(
+                labels, return_tensors=return_tensors, padding=padding, truncation=truncation, max_length=max_length
+            )
+        else:
+            labels_inputs = {}
+
+        return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs, **seg_inputs, **labels_inputs})
 
     # Copied from transformers.models.clip.processing_clip.CLIPProcessor.batch_decode with CLIP->Llama
     def batch_decode(self, *args, **kwargs):
@@ -168,3 +177,25 @@ class LlavaNextVideoProcessor(ProcessorMixin):
         tokenizer_input_names = self.tokenizer.model_input_names
         image_processor_input_names = self.image_processor.model_input_names
         return list(dict.fromkeys(tokenizer_input_names + image_processor_input_names))
+
+
+class LlasaDataCollatorWithPadding:
+    def __init__(self, processor):
+        self.processor = processor
+
+    def __call__(self, features):
+        padded_inputs = self.processor.tokenizer.pad(
+            {
+                "input_ids": [feat['input_ids'][0] for feat in features], # each element is one batch only so we slice [0]
+                "attention_mask": [feat['attention_mask'][0] for feat in features],
+            },
+            padding=True,
+            return_tensors="pt",
+        )
+
+        labels = padded_inputs["input_ids"].clone()
+        labels[labels == self.processor.tokenizer.pad_token_id] = -100
+        padded_inputs["labels"] = labels
+        padded_inputs["pixel_values_videos"] = torch.cat([feat['pixel_values_videos'] for feat in features], dim=0)
+
+        return padded_inputs
