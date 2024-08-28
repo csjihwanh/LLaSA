@@ -1,3 +1,8 @@
+"""
+This code referenced
+https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_next_video/modeling_llava_next_video.py#L386
+"""
+
 import torch
 from torch import nn
 from typing import List, Optional, Tuple, Union
@@ -21,6 +26,8 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+from transformers.cache_utils import Cache
+
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "LlavaNextVideoConfig"
@@ -39,6 +46,7 @@ class LLaSA(LlavaNextVideoForConditionalGeneration):
         input_ids: torch.LongTensor = None,
         pixel_values: torch.FloatTensor = None,
         pixel_values_videos: torch.FloatTensor = None,
+        seg_tokens = None,
         image_sizes: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
@@ -122,6 +130,11 @@ class LLaSA(LlavaNextVideoForConditionalGeneration):
         >>> processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "USER: \nWhat's the content of the image? ASSISTANT: The image shows a red stop sign on a pole, with a traditional Chinese archway (...)"
         ```"""
+        #import pdb; pdb.set_trace()
+        if seg_tokens is not None:
+            print('got seg!!:', seg_tokens.shape, position_ids)
+        if pixel_values_videos is not None:
+            print('got vid!!:', pixel_values_videos.shape, position_ids)
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -247,6 +260,31 @@ class LLaSA(LlavaNextVideoForConditionalGeneration):
                     )
                     video_features = video_features.to(inputs_embeds.device, inputs_embeds.dtype)
                     inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, video_features)
+        
+        ### concatenate segmentation token
+
+        if seg_tokens is not None:
+
+            batch_size, seg_token_length, embedding_dim = seg_tokens.shape
+            assert embedding_dim == inputs_embeds.shape[-1], "Embedding dimensions must match"
+
+            inputs_embeds = torch.cat((inputs_embeds, seg_tokens), dim=1)
+
+            # Update attention mask to account for the new segmentation tokens
+            seg_mask = torch.ones(batch_size, seg_token_length, device=inputs_embeds.device)
+            attention_mask = torch.cat((attention_mask, seg_mask), dim=1)
+
+            # Update position_ids accordingly
+            # If the segmentation tokens are added at the end, extend position_ids
+            if position_ids is not None:
+                seg_position_ids = (
+                    position_ids[:, -1:] + torch.arange(1, seg_token_length + 1, device=position_ids.device).unsqueeze(0)
+                )
+                position_ids = torch.cat((position_ids, seg_position_ids), dim=1)
+            else:
+                position_ids = torch.arange(inputs_embeds.size(1), device=inputs_embeds.device).unsqueeze(0).repeat(batch_size, 1)
+
+        ### segmentation addition part done 
 
         outputs = self.language_model(
             attention_mask=attention_mask,
@@ -288,3 +326,73 @@ class LLaSA(LlavaNextVideoForConditionalGeneration):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+    def prepare_inputs_for_generation(
+        self,
+        input_ids,
+        past_key_values=None,
+        inputs_embeds=None,
+        pixel_values=None,
+        pixel_values_videos=None,
+        seg_tokens=None,
+        image_sizes=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        #import pdb; pdb.set_trace()
+        if past_key_values is not None:
+            if isinstance(past_key_values, Cache):
+                cache_length = past_key_values.get_seq_length()
+                past_length = past_key_values.seen_tokens
+            else:
+                cache_length = past_length = past_key_values[0][0].shape[2]
+
+            # Keep only the unprocessed tokens:
+            # 1 - If the length of the attention_mask exceeds the length of input_ids, then we are in a setting where
+            # some of the inputs are exclusively passed as part of the cache (e.g. when passing input_embeds as
+            # input)
+            if attention_mask is not None and attention_mask.shape[1] > input_ids.shape[1]:
+                input_ids = input_ids[:, -(attention_mask.shape[1] - past_length) :]
+            # 2 - If the past_length is smaller than input_ids', then input_ids holds all input tokens. We can discard
+            # input_ids based on the past_length.
+            elif past_length < input_ids.shape[1]:
+                input_ids = input_ids[:, past_length:]
+
+            # 3 - Otherwise (past_length >= input_ids.shape[1]), let's assume input_ids only has unprocessed tokens.
+            elif self.config.image_token_index in input_ids or self.config.video_token_index in input_ids:
+                input_ids = input_ids[:, input_ids.shape[1] - 1 :]
+
+            # If the cache has seen more tokens than it can hold, then the cache has a size limit. Let's discard the
+            # older attention values, as their corresponding values are not part of the input.
+            if cache_length < past_length and attention_mask is not None:
+                attention_mask = attention_mask[:, -(cache_length + input_ids.shape[1]) :]
+
+        position_ids = kwargs.get("position_ids", None)
+        if attention_mask is not None and position_ids is None:
+            # create position_ids on the fly for batch generation
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+            if past_key_values:
+                position_ids = position_ids[:, -input_ids.shape[1] :]
+
+        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
+        if inputs_embeds is not None and past_key_values is None:
+            model_inputs = {"inputs_embeds": inputs_embeds}
+        else:
+            model_inputs = {"input_ids": input_ids}
+
+        model_inputs.update(
+            {
+                "position_ids": position_ids,
+                "past_key_values": past_key_values,
+                "use_cache": kwargs.get("use_cache"),
+                "attention_mask": attention_mask,
+                "pixel_values": pixel_values,
+                "pixel_values_videos": pixel_values_videos,
+                "seg_tokens":seg_tokens,
+                "image_sizes": image_sizes,
+            }
+        )
+        return model_inputs
+
+
