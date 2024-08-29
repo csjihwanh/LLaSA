@@ -266,8 +266,8 @@ class LLaSA(LlavaNextVideoForConditionalGeneration):
         ### concatenate segmentation token
         
         if seg_tokens is not None:
-            seg_features = self.seg_projector(seg_tokens)
             if torch.any(input_ids == SEG_TOKEN_INDEX):
+                seg_features = self.seg_projector(seg_tokens)
                 (
                     inputs_embeds,
                     attention_mask,

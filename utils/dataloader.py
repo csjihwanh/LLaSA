@@ -3,12 +3,12 @@ import torch
 import random
 from torch.utils.data import Dataset
 
-from utils.utils import read_video_pyav
+from utils.video_utils import read_video_pyav
 import datasets
 
 # Define the custom Dataset class
 class Dataset_A2D(Dataset):
-    def __init__(self, start_idx, end_idx, processor):
+    def __init__(self, start_idx, end_idx, processor, debug=False):
         
         self.sam_tensor_path_base='/workspace/LLaSA/dataset/A2D/a2d_sam_tensor'
         self.video_path_base ='/workspace/LLaSA/dataset/A2D/clips320H'
@@ -16,6 +16,7 @@ class Dataset_A2D(Dataset):
         json_file_path='/workspace/LLaSA/dataset/A2D/output_video_info.json'
 
         self.processor = processor
+        self.debug = debug
 
         # Load data from JSON file
         with open(json_file_path, 'r') as f:
@@ -44,6 +45,9 @@ class Dataset_A2D(Dataset):
         # Extract data
         caption = item['caption']
         video_id = item['video']
+        
+        if self.debug: 
+            print(video_id, caption)
 
         video_path = f"{self.video_path_base}/{video_id}.mp4"
         sam_tensor_path = f"{self.sam_tensor_path_base}/{key}.pt" 
@@ -65,7 +69,7 @@ class Dataset_A2D(Dataset):
         prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
         inputs = self.processor([prompt], videos=[video], seg=seg, labels=caption, padding=True, return_tensors="pt")
         inputs['pixel_values_videos'] = inputs['pixel_values_videos'].to(torch.float16)
-        inputs['seg_tokens'] = inputs['seg_tokens'].to(torch.float16)
+        inputs['seg_tokens'] = inputs['seg_tokens'].to(torch.float16).transpose(1,2)
         #inputs = {key: value.squeeze(0) for key, value in inputs.items()}
 
         return inputs

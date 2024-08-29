@@ -1,0 +1,8 @@
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+.DS_Store
+.env
+.vscode/
